@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TERMINAL_V13_GRADIENT_SCAN</title>
+    <style>
+        :root { 
+            --neon: #00ff41; 
+            --bg: #010a0f; 
+            --error: #ff003c;
+            --panel: rgba(2, 20, 5, 0.95); 
+            --border: rgba(0, 255, 65, 0.3); 
+        }
+
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); font-family: 'Courier New', monospace; color: var(--neon); overflow: hidden; }
+        #matrix-canvas { position: fixed; inset: 0; z-index: -1; opacity: 0.15; }
+
+        /* GATE */
+        #gate { position: fixed; inset: 0; background: #000; z-index: 9999; display: flex; justify-content: center; align-items: center; transition: 0.6s; }
+        .gate-card { border: 1px solid var(--border); padding: 40px; background: var(--panel); text-align: center; width: 300px; }
+
+        /* MAIN UI */
+        #main-wrapper { display: flex; flex-direction: column; height: 100vh; opacity: 0; transition: 1s; }
+        .glass { background: var(--panel); border: 1px solid var(--border); margin: 8px; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* SCANNER HUD */
+        #scanner-hud { height: 160px; padding: 10px; font-size: 0.7rem; border-bottom: 2px solid var(--border); overflow-y: auto; background: rgba(0,0,0,0.5); }
+        .scan-item { display: flex; justify-content: space-between; padding: 6px; border-bottom: 1px solid rgba(0,255,65,0.1); animation: slideIn 0.3s forwards; }
+        @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ENTROPY OVERLAY & STRENGTH METER */
+        #entropy-input-zone { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.98); z-index: 100; flex-direction: column; justify-content: center; align-items: center; padding: 20px; }
+        .strength-meter { width: 260px; height: 4px; background: #111; margin-top: 15px; position: relative; border-radius: 2px; overflow: hidden; }
+        #strength-fill { height: 100%; width: 0%; transition: 0.5s ease; background: var(--error); }
+        
+        #term-log { flex: 1; padding: 15px; font-size: 0.7rem; overflow-y: auto; }
+        input { background: transparent; border: none; color: #fff; width: 100%; outline: none; border-bottom: 1px solid var(--border); padding: 10px 0; }
+        
+        @keyframes alert-pulse { 0% { background: rgba(255, 0, 60, 0.2); } 50% { background: rgba(255, 0, 60, 0.4); } 100% { background: rgba(255, 0, 60, 0.2); } }
+        .warning-active { animation: alert-pulse 0.4s infinite; }
+    </style>
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+
+<div id="gate">
+    <div class="gate-card">
+        <h2 style="letter-spacing:5px;">V13_SECURE</h2>
+        <input type="password" id="passKey" placeholder="[ KEY_CODE ]" style="text-align:center;">
+    </div>
+</div>
+
+<div id="main-wrapper">
+    <header style="padding:10px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; font-size:0.6rem; background:rgba(0,0,0,0.8);">
+        <span>SYSTEM: V13_KERNEL</span>
+        <span id="clock">00:00:00</span>
+    </header>
+
+    <div class="glass" style="flex:1;">
+        <div id="entropy-input-zone">
+            <div id="warning-label" style="font-size: 0.6rem;">AWAITING_SEQUENCE</div>
+            <div style="font-size: 1.8rem; color: #fff; margin: 15px 0;" id="live-input-display">_</div>
+            <div id="calc-result" style="font-size: 0.7rem; color: yellow;">WAYS: 0</div>
+            <div class="strength-meter"><div id="strength-fill"></div></div>
+            <div style="font-size: 0.5rem; margin-top: 25px; opacity: 0.4;">[ESC] TO CLOSE ANALYZER</div>
+        </div>
+
+        <div id="scanner-hud">
+            <div id="scan-results">
+                <div style="opacity: 0.3; text-align: center; margin-top: 30px;">[ SENSORS_IDLE_TYPE_'SCAN'_TO_ACTIVATE ]</div>
+            </div>
+        </div>
+
+        <div id="term-log">
+            <div style="color:var(--neon); opacity: 0.5;">[SYS] KERNEL_V13_ONLINE. WELCOME, SIR.</div>
+        </div>
+        
+        <div style="padding: 10px;"><input type="text" id="cmdInput" placeholder=">_"></div>
+    </div>
+</div>
+
+<script>
+    const SECRET = "7b36aa3db07e";
+    const synth = window.speechSynthesis;
+    let manualMode = false;
+
+    // Login logic
+    document.getElementById('passKey').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            if(e.target.value.toLowerCase() === SECRET) {
+                document.getElementById('gate').style.display = 'none';
+                document.getElementById('main-wrapper').style.opacity = '1';
+                speakAI("Tactical suite engaged. Ready for scan commands.");
+            } else { e.target.value = ''; }
+        }
+    });
+
+    function speakAI(text) {
+        if (synth.speaking) synth.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.pitch = 0.6; utter.rate = 1.0;
+        synth.speak(utter);
+    }
+
+    // Unified Command Logic
+    document.getElementById('cmdInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            const val = e.target.value.trim().toLowerCase();
+            if(val === "scan") {
+                executeFullScan();
+            } else if(val === "combination") {
+                manualMode = true;
+                document.getElementById('entropy-input-zone').style.display = 'flex';
+                speakAI("Interactive entropy mode active.");
+            } else { logToTerm(`> ${val}`, "gray"); }
+            e.target.value = '';
+        }
+    });
+
+    // Unified Scanner (WiFi + Bluetooth)
+    async function executeFullScan() {
+        const results = document.getElementById('scan-results');
+        results.innerHTML = ""; // Clear idle text
+        logToTerm("Initiating wide-spectrum node detection...", "yellow");
+        speakAI("Scanning for nearby networks and hardware nodes.");
+
+        // WiFi/Network Simulation
+        const nets = [{id: "WIFI_982", sig: "-45dBm"}, {id: "OFFICE_ADMIN", sig: "-60dBm"}];
+        nets.forEach(n => {
+            results.innerHTML += `<div class="scan-item"><span>[NET] ${n.id}</span><span style="color:var(--neon);">${n.sig}</span></div>`;
+        });
+
+        // Real Bluetooth Hardware Detection
+        try {
+            const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+            results.innerHTML = `<div class="scan-item" style="border-left: 2px solid white;"><span>[DEV] ${device.name || 'HIDDEN'}</span><span style="color:yellow;">LINKED</span></div>` + results.innerHTML;
+            logToTerm(`Hardware Node Found: ${device.name}`, "white");
+        } catch (err) { logToTerm("Hardware scan bypassed.", "#555"); }
+    }
+
+    // Entropy typing and Strength Meter
+    window.addEventListener('keydown', (e) => {
+        if(!manualMode) return;
+        const display = document.getElementById('live-input-display');
+
+        if(e.key === 'Escape') {
+            manualMode = false;
+            document.getElementById('entropy-input-zone').style.display = 'none';
+            return;
+        }
+
+        if(e.key === 'Backspace') {
+            display.innerText = display.innerText.slice(0, -1) || "_";
+        } else if (e.key.length === 1) {
+            if(display.innerText === "_") display.innerText = "";
+            display.innerText += e.key.toUpperCase();
+        }
+
+        updateStrength();
+    });
+
+    function updateStrength() {
+        const text = document.getElementById('live-input-display').innerText.replace("_", "");
+        const len = text.length;
+        const fill = document.getElementById('strength-fill');
+        const label = document.getElementById('warning-label');
+        const zone = document.getElementById('entropy-input-zone');
+        
+        const ways = Math.pow(36, len);
+        document.getElementById('calc-result').innerText = `WAYS: ${ways > 1e6 ? ways.toExponential(2) : ways.toLocaleString()}`;
+
+        // Strength Meter Logic
+        let percentage = Math.min((len / 10) * 100, 100);
+        fill.style.width = percentage + "%";
+
+        if(len < 6 && len > 0) {
+            fill.style.background = "var(--error)";
+            label.innerText = "[ SECURITY_CRITICAL ]";
+            label.style.color = "var(--error)";
+            zone.classList.add('warning-active');
+        } else if(len >= 6) {
+            fill.style.background = "var(--neon)";
+            label.innerText = "[ ENCRYPTION_STABLE ]";
+            label.style.color = "var(--neon)";
+            zone.classList.remove('warning-active');
+        } else {
+            fill.style.width = "0%";
+            label.innerText = "AWAITING_INPUT";
+            label.style.color = "var(--neon)";
+        }
+    }
+
+    function logToTerm(m, c) {
+        const log = document.getElementById('term-log');
+        log.innerHTML += `<div style="color:${c}">[${new Date().toLocaleTimeString()}] ${m}</div>`;
+        log.scrollTop = log.scrollHeight;
+    }
+
+    // Matrix Rain
+    const canvas = document.getElementById('matrix-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    const drops = Array(Math.floor(canvas.width/15)).fill(1);
+    function draw() {
+        ctx.fillStyle = "rgba(1, 10, 15, 0.15)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "#00ff41"; ctx.font = "15px monospace";
+        drops.forEach((y, i) => {
+            ctx.fillText(Math.floor(Math.random()*2), i*15, y*15);
+            if(y*15 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        });
+    }
+    setInterval(draw, 50);
+    setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString(), 1000);
+</script>
+</body>
+</html>
